@@ -19,4 +19,7 @@ int array_append_unique(struct array *array, const void *element);
 void array_pop(struct array *array);
 void array_free_array(struct array *array);
 void array_sort(struct array *array, int (*cmp)(const void *a, const void *b));
+void array_sort_r(struct array *array,
+		  int (*cmp)(const void *a, const void *b, void *ctx),
+		  void *ctx);
 int array_remove_at(struct array *array, unsigned int pos);

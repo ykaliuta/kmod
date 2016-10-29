@@ -17,6 +17,9 @@
  * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include <assert.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -90,6 +93,13 @@ void array_free_array(struct array *array) {
 void array_sort(struct array *array, int (*cmp)(const void *a, const void *b))
 {
 	qsort(array->array, array->count, sizeof(void *), cmp);
+}
+
+void array_sort_r(struct array *array,
+		  int (*cmp)(const void *a, const void *b, void *),
+		  void *ctx)
+{
+	qsort_r(array->array, array->count, sizeof(void *), cmp, ctx);
 }
 
 int array_remove_at(struct array *array, unsigned int pos)
