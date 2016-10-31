@@ -833,6 +833,11 @@ struct symbol {
 	char name[];
 };
 
+struct sort_order {
+	int sort_idx;
+	char mod_rel_path[];
+};
+
 struct depmod {
 	const struct cfg *cfg;
 	struct kmod_ctx *ctx;
@@ -840,6 +845,7 @@ struct depmod {
 	struct hash *modules_by_uncrelpath;
 	struct hash *modules_by_name; /* struct named_modules */
 	struct hash *symbols;
+	struct hash *sort_order;
 };
 
 static struct mod *mod_new(struct depmod *depmod,
@@ -947,8 +953,16 @@ static int depmod_init(struct depmod *depmod, struct cfg *cfg,
 		goto symbols_failed;
 	}
 
+	depmod->sort_order = hash_new(512, (void (*)(void *))free);
+	if (depmod->sort_order == NULL) {
+		err = -errno;
+		goto sort_order_failed;
+	}
+
 	return 0;
 
+sort_order_failed:
+	hash_free(depmod->symbols);
 symbols_failed:
 	hash_free(depmod->modules_by_name);
 modules_by_name_failed:
@@ -1382,6 +1396,71 @@ static int depmod_modules_build_array(struct depmod *depmod)
 	}
 
 	return 0;
+}
+
+static struct sort_order *sort_order_new(char *rel_path, int sort_idx)
+{
+	size_t pathsz = strlen(rel_path) + 1;
+	struct sort_order *ord;
+
+	ord = malloc(pathsz);
+	if (ord == NULL)
+		return NULL;
+
+	strcpy(ord->mod_rel_path, rel_path);
+	ord->sort_idx = sort_idx;
+	return ord;
+}
+
+static void depmod_make_sort_order(struct depmod *depmod)
+{
+	char order_file[PATH_MAX], line[PATH_MAX];
+	FILE *fp;
+	unsigned idx = 0, total = 0;
+
+	snprintf(order_file, sizeof(order_file), "%s/modules.order",
+		 depmod->cfg->dirname);
+	fp = fopen(order_file, "r");
+	if (fp == NULL) {
+		WRN("could not open %s: %m\n", order_file);
+		return;
+	}
+
+	while (fgets(line, sizeof(line), fp) != NULL) {
+		size_t len = strlen(line);
+		idx++;
+		if (len == 0)
+			continue;
+		if (line[len - 1] != '\n') {
+			ERR("%s:%u corrupted line misses '\\n'\n",
+				order_file, idx);
+			goto out;
+		}
+	}
+	total = idx + 1;
+	idx = 0;
+	fseek(fp, 0, SEEK_SET);
+	while (fgets(line, sizeof(line), fp) != NULL) {
+		size_t len = strlen(line);
+		struct sort_order *ord;
+		int sort_idx;
+
+		idx++;
+		if (len == 0)
+			continue;
+		line[len - 1] = '\0';
+
+		sort_idx = idx - total;
+		ord = sort_order_new(line, sort_idx);
+		if (ord == NULL) {
+			ERR("No memmory\n");
+			goto out;
+		}
+
+		hash_add(depmod->sort_order, line, ord);
+	}
+out:
+	fclose(fp);
 }
 
 static void depmod_modules_sort(struct depmod *depmod)
@@ -1893,6 +1972,8 @@ static int depmod_load(struct depmod *depmod)
 	err = depmod_load_dependencies(depmod);
 	if (err < 0)
 		return err;
+
+	depmod_make_sort_order(depmod);
 
 	return 0;
 }
