@@ -833,11 +833,6 @@ struct symbol {
 	char name[];
 };
 
-struct sort_order {
-	int sort_idx;
-	char mod_rel_path[];
-};
-
 struct depmod {
 	const struct cfg *cfg;
 	struct kmod_ctx *ctx;
@@ -953,7 +948,7 @@ static int depmod_init(struct depmod *depmod, struct cfg *cfg,
 		goto symbols_failed;
 	}
 
-	depmod->sort_order = hash_new(512, (void (*)(void *))free);
+	depmod->sort_order = hash_new(512, NULL);
 	if (depmod->sort_order == NULL) {
 		err = -errno;
 		goto sort_order_failed;
@@ -1398,20 +1393,6 @@ static int depmod_modules_build_array(struct depmod *depmod)
 	return 0;
 }
 
-static struct sort_order *sort_order_new(char *rel_path, int sort_idx)
-{
-	size_t pathsz = strlen(rel_path) + 1;
-	struct sort_order *ord;
-
-	ord = malloc(pathsz);
-	if (ord == NULL)
-		return NULL;
-
-	strcpy(ord->mod_rel_path, rel_path);
-	ord->sort_idx = sort_idx;
-	return ord;
-}
-
 static void depmod_make_sort_order(struct depmod *depmod)
 {
 	char order_file[PATH_MAX], line[PATH_MAX];
@@ -1442,8 +1423,7 @@ static void depmod_make_sort_order(struct depmod *depmod)
 	fseek(fp, 0, SEEK_SET);
 	while (fgets(line, sizeof(line), fp) != NULL) {
 		size_t len = strlen(line);
-		struct sort_order *ord;
-		int sort_idx;
+		intptr_t sort_idx;
 
 		idx++;
 		if (len == 0)
@@ -1451,13 +1431,8 @@ static void depmod_make_sort_order(struct depmod *depmod)
 		line[len - 1] = '\0';
 
 		sort_idx = idx - total;
-		ord = sort_order_new(line, sort_idx);
-		if (ord == NULL) {
-			ERR("No memmory\n");
-			goto out;
-		}
-
-		hash_add(depmod->sort_order, line, ord);
+		assert(sort_idx != 0);
+		hash_add(depmod->sort_order, line, (void *)sort_idx);
 	}
 out:
 	fclose(fp);
@@ -1520,8 +1495,8 @@ static bool depmod_should_replace_sym(struct depmod *depmod,
 				      struct symbol *old,
 				      struct symbol *new)
 {
-	struct sort_order *ord1;
-	struct sort_order *ord2;
+	intptr_t ord1;
+	intptr_t ord2;
 
 	if (old == NULL)
 		return true;
@@ -1535,15 +1510,15 @@ static bool depmod_should_replace_sym(struct depmod *depmod,
 	if (old->owner->relpath == NULL)
 		return false;
 
-	ord1 = hash_find(depmod->sort_order, old->owner->relpath);
-	ord2 = hash_find(depmod->sort_order, new->owner->relpath);
+	ord1 = (intptr_t)hash_find(depmod->sort_order, old->owner->relpath);
+	ord2 = (intptr_t)hash_find(depmod->sort_order, new->owner->relpath);
 
-	if (ord1 == NULL)
+	if (ord1 == 0)
 		return true;
-	if (ord2 == NULL)
+	if (ord2 == 0)
 		return false;
 
-	return ord1->sort_idx < ord2->sort_idx;
+	return ord1 < ord2;
 }
 
 static int _depmod_symbol_add(struct depmod *depmod, struct symbol *sym)
