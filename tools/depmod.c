@@ -1516,9 +1516,47 @@ corrupted:
 	fclose(fp);
 }
 
+static bool depmod_should_replace_sym(struct depmod *depmod,
+				      struct symbol *old,
+				      struct symbol *new)
+{
+	struct sort_order *ord1;
+	struct sort_order *ord2;
+
+	if (old == NULL)
+		return true;
+
+	if (old->owner == NULL || new->owner == NULL)
+		return true;
+
+	if (new->owner->relpath == NULL)
+		return true;
+
+	if (old->owner->relpath == NULL)
+		return false;
+
+	ord1 = hash_find(depmod->sort_order, old->owner->relpath);
+	ord2 = hash_find(depmod->sort_order, new->owner->relpath);
+
+	if (ord1 == NULL)
+		return true;
+	if (ord2 == NULL)
+		return false;
+
+	return ord1->sort_idx < ord2->sort_idx;
+}
+
 static int _depmod_symbol_add(struct depmod *depmod, struct symbol *sym)
 {
 	int err;
+	struct symbol *old;
+
+	old = hash_find(depmod->symbols, sym->name);
+	if (!depmod_should_replace_sym(depmod, old, sym)) {
+		DBG("Skipped low priority symbol %s, owner %s\n",
+		    sym->name, sym->owner ? sym->owner->modname : "(unknown)");
+		return 0;
+	}
 
 	err = hash_add(depmod->symbols, sym->name, sym);
 	if (err < 0) {
