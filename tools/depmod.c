@@ -1004,6 +1004,8 @@ static int depmod_module_named_get(struct depmod *depmod,
 
 	nm->modnamesz = modnamesz;
 	strcpy(nm->modname, modname);
+	/* not a lot of the same named modules expected */
+	array_init(&nm->modules_sorted, 1);
 
 	err = hash_add_unique(depmod->modules_by_name, nm->modname, nm);
 	if (err < 0) {
