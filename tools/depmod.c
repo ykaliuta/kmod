@@ -64,7 +64,7 @@ static const char *default_cfg_paths[] = {
 	NULL
 };
 
-static const char cmdopts_s[] = "aAb:C:E:F:euqrvnP:wmVh";
+static const char cmdopts_s[] = "aAb:C:E:F:euqrvnP:wjmVh";
 static const struct option cmdopts[] = {
 	{ "all", no_argument, 0, 'a' },
 	{ "quick", no_argument, 0, 'A' },
@@ -81,6 +81,7 @@ static const struct option cmdopts[] = {
 	{ "dry-run", no_argument, 0, 'n' },
 	{ "symbol-prefix", required_argument, 0, 'P' },
 	{ "warn", no_argument, 0, 'w' },
+	{ "reject", no_argument, 0, 'j' },
 	{ "map", no_argument, 0, 'm' }, /* deprecated */
 	{ "version", no_argument, 0, 'V' },
 	{ "help", no_argument, 0, 'h' },
@@ -105,6 +106,7 @@ static void help(void)
 		"\t-C, --config=PATH    Read configuration from PATH\n"
 		"\t-v, --verbose        Enable verbose mode\n"
 		"\t-w, --warn           Warn on duplicates\n"
+		"\t-j, --reject         Reject modules with failed symbols\n"
 		"\t-V, --version        show version\n"
 		"\t-h, --help           show this help\n"
 		"\n"
@@ -460,6 +462,7 @@ struct cfg {
 	uint8_t check_symvers;
 	uint8_t print_unknown;
 	uint8_t warn_dups;
+	uint8_t reject_failed_symbols;
 	struct cfg_override *overrides;
 	struct cfg_search *searches;
 };
@@ -1433,7 +1436,7 @@ static void depmod_make_sort_order(struct depmod *depmod)
 			continue;
 		line[len - 1] = '\0';
 
-		sort_idx = idx - total;
+		sort_idx = (intptr_t)idx - (intptr_t)total;
 		assert(sort_idx != 0);
 		hash_add(depmod->sort_order, line, (void *)sort_idx);
 	}
@@ -1516,10 +1519,8 @@ static bool depmod_should_replace_sym(struct depmod *depmod,
 	ord1 = (intptr_t)hash_find(depmod->sort_order, old->owner->relpath);
 	ord2 = (intptr_t)hash_find(depmod->sort_order, new->owner->relpath);
 
-	if (ord1 == 0)
+	if (ord1 == 0 || ord2 == 0)
 		return true;
-	if (ord2 == 0)
-		return false;
 
 	return ord1 < ord2;
 }
@@ -1541,7 +1542,8 @@ static int _depmod_symbol_add(struct depmod *depmod, struct symbol *sym)
 		free(sym);
 		return err;
 	}
-	DBG("Added symbol %s to the global pool\n", sym->name);
+	DBG("Added symbol %s from %s to the global pool\n",
+	    sym->name, sym->owner ? sym->owner->path : "(unknown)");
 
 	return 0;
 }
@@ -1672,6 +1674,7 @@ static bool depmod_module_is_fit(struct depmod *depmod, struct mod *mod)
 {
 	const struct cfg *cfg = depmod->cfg;
 	struct kmod_list *l;
+	bool is_fit = true;
 
 	DBG("do dependencies fit of %s\n", mod->path);
 	kmod_list_foreach(l, mod->dep_sym_list) {
@@ -1687,7 +1690,8 @@ static bool depmod_module_is_fit(struct depmod *depmod, struct mod *mod)
 			if (cfg->print_unknown && !is_weak)
 				WRN("%s needs unknown symbol %s\n",
 				    mod->path, name);
-			return false;
+			is_fit = false;
+			break;
 		}
 
 		if (sym->crc != 0 && sym->crc != crc && !is_weak) {
@@ -1696,11 +1700,18 @@ static bool depmod_module_is_fit(struct depmod *depmod, struct mod *mod)
 			if (cfg->print_unknown)
 				WRN("%s disagrees about version of symbol %s\n",
 				    mod->path, name);
-			return false;
+			is_fit = false;
+			break;
 		}
 	}
-	DBG("module %s fits current configuration\n", mod->path);
-	return true;
+
+	if (is_fit)
+		DBG("module %s fits current configuration\n", mod->path);
+
+	if (!cfg->reject_failed_symbols)
+		is_fit = true;
+
+	return is_fit;
 }
 
 static void depmod_insert_module(struct depmod *depmod, struct mod *mod)
@@ -1712,7 +1723,9 @@ static void depmod_insert_module(struct depmod *depmod, struct mod *mod)
 		const char *name = kmod_module_dependency_symbol_get_symbol(l);
 		struct symbol *sym = depmod_symbol_find(depmod, name);
 
-		mod_add_dependency(mod, sym);
+		/* can be NULL if cfg->reject_failed_symbols == false */
+		if (sym != NULL)
+			mod_add_dependency(mod, sym);
 	}
 
 	DBG("do insert symbols of %s\n", mod->path);
@@ -2838,6 +2851,9 @@ static int do_depmod(int argc, char *argv[])
 			break;
 		case 'w':
 			cfg.warn_dups = 1;
+			break;
+		case 'j':
+			cfg.reject_failed_symbols = 1;
 			break;
 		case 'u':
 		case 'q':
