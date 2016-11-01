@@ -936,10 +936,10 @@ static int mod_add_dependency(struct mod *mod, struct symbol *sym)
 	return 0;
 }
 
-static void symbol_free(struct symbol *sym)
+static void named_symbol_free(struct symbol *sym)
 {
-	DBG("free %p sym=%s, owner=%p %s\n", sym, sym->name, sym->owner,
-	    sym->owner != NULL ? sym->owner->path : "");
+	DBG("free %p sym=%s\n", sym, sym->name);
+	/* the symbols list must be freed before by cleaning owner modules */
 	free(sym);
 }
 
@@ -965,8 +965,7 @@ static int depmod_init(struct depmod *depmod, struct cfg *cfg,
 		goto modules_by_name_failed;
 	}
 
-	/* depmod->symbols = hash_new(2048, (void (*)(void *))symbol_free); */
-	depmod->symbols = hash_new(2048, NULL);
+	depmod->symbols = hash_new(2048, (void (*)(void *))named_symbol_free);
 	if (depmod->symbols == NULL) {
 		err = -errno;
 		goto symbols_failed;
@@ -1711,8 +1710,8 @@ static struct named_symbols *depmod_symbol_named_find(struct depmod *depmod,
 	return hash_find(depmod->symbols, name);
 }
 
-static int depmod_connect_symbol_dependencies(struct depmod *depmod,
-					      struct mod *mod)
+static int depmod_module_connect_symbol_dependencies(struct depmod *depmod,
+						     struct mod *mod)
 {
 	struct kmod_list *l;
 	struct kmod_list *s;
@@ -1771,7 +1770,7 @@ static int depmod_connect_dependencies(struct depmod *depmod)
 				DBG("ignoring %s: no dependency symbols\n", mod->path);
 				continue;
 			}
-			depmod_connect_symbol_dependencies(depmod, mod);
+			depmod_module_connect_symbol_dependencies(depmod, mod);
 		}
 	}
 
@@ -2118,27 +2117,6 @@ static void depmod_graph_remove_low_priority(struct depmod *depmod)
 				    m, m->modname);
 				depmod_graph_remove_module(depmod, m);
 			}
-		}
-	}
-}
-
-/* removes marked modules */
-static void depmod_graph_remove_finish(struct depmod *depmod)
-{
-	/* copy'n'paste */
-	struct hash_iter module_iter;
-	const void *v;
-
-	hash_iter_init(depmod->modules_by_name, &module_iter);
-	while (hash_iter_next(&module_iter, NULL, &v)) {
-		struct named_modules *nm = (struct named_modules *) v;
-		struct kmod_list *l;
-
-		kmod_list_foreach(l, nm->modules) {
-			struct mod *mod = l->data;
-
-			DBG("Removing module %p(%s)\n", mod, mod->modname);
-			depmod_module_del(depmod, mod);
 		}
 	}
 }
