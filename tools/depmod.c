@@ -1985,11 +1985,11 @@ static int depmod_load(struct depmod *depmod)
 {
 	int err;
 
+	depmod_make_sort_order(depmod);
+
 	err = depmod_load_dependencies(depmod);
 	if (err < 0)
 		return err;
-
-	depmod_make_sort_order(depmod);
 
 	return 0;
 }
