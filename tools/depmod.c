@@ -1301,7 +1301,8 @@ static int submod_cmp(const void *pa, const void *pb, void *ctx) {
 	const struct mod *b = *(const struct mod **)pb;
 	struct depmod *depmod = ctx;
 
-	return depmod_module_priority_compare(depmod, a, b);
+	/* sort in descending order, higer priority first */
+	return -depmod_module_priority_compare(depmod, a, b);
 }
 
 static int depmod_modules_sort_subfiles(struct depmod *depmod)
