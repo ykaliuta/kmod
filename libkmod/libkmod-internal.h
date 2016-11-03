@@ -59,11 +59,8 @@ struct kmod_list {
 	void *data;
 };
 
-struct kmod_list *kmod_list_append(struct kmod_list *list, const void *data) _must_check_ __attribute__((nonnull(2)));
 struct kmod_list *kmod_list_prepend(struct kmod_list *list, const void *data) _must_check_ __attribute__((nonnull(2)));
 struct kmod_list *kmod_list_remove(struct kmod_list *list) _must_check_;
-struct kmod_list *kmod_list_remove_data(struct kmod_list *list,
-					const void *data) _must_check_ __attribute__((nonnull(2)));
 struct kmod_list *kmod_list_remove_n_latest(struct kmod_list *list,
 						unsigned int n) _must_check_;
 struct kmod_list *kmod_list_insert_after(struct kmod_list *list, const void *data) __attribute__((nonnull(2)));

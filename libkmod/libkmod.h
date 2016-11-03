@@ -87,6 +87,11 @@ struct kmod_list *kmod_list_next(const struct kmod_list *list,
 struct kmod_list *kmod_list_prev(const struct kmod_list *list,
 						const struct kmod_list *curr);
 struct kmod_list *kmod_list_last(const struct kmod_list *list);
+struct kmod_list *kmod_list_append(struct kmod_list *list, const void *data) __attribute__((warn_unused_result)) __attribute__((nonnull(2)));
+
+struct kmod_list *kmod_list_remove_data(struct kmod_list *list,
+					const void *data) __attribute__((warn_unused_result)) __attribute__((nonnull(2)));
+void *kmod_list_data(const struct kmod_list *list);
 
 #define kmod_list_foreach(list_entry, first_entry) \
 	for (list_entry = first_entry; \

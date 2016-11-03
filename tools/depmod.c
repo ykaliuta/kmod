@@ -41,18 +41,6 @@
 
 #include "kmod.h"
 
-struct kmod_list *kmod_list_append(struct kmod_list *list, const void *data);
-struct kmod_list *kmod_list_remove_data(struct kmod_list *list,
-					const void *data);
-struct list_node {
-	struct list_node *next, *prev;
-};
-
-struct kmod_list {
-	struct list_node node;
-	void *data;
-};
-
 #define DEFAULT_VERBOSE LOG_WARNING
 static int verbose = DEFAULT_VERBOSE;
 
@@ -1320,7 +1308,7 @@ static int depmod_modules_sort_subfiles(struct depmod *depmod)
 		struct kmod_list *l;
 
 		kmod_list_foreach(l, nm->modules) {
-			struct mod *mod = l->data;
+			struct mod *mod = kmod_list_data(l);
 
 			err = array_append(&nm->modules_sorted, mod);
 			if (err < 0)
@@ -1384,7 +1372,7 @@ static int depmod_modules_build_array(struct depmod *depmod)
 			continue;
 
 		kmod_list_foreach(l, nm->modules) {
-			struct mod *mod = l->data;
+			struct mod *mod = kmod_list_data(l);
 
 			if (! mod->inserted)
 				continue;
@@ -1730,7 +1718,7 @@ static void depmod_insert_module(struct depmod *depmod, struct mod *mod)
 
 	DBG("do insert symbols of %s\n", mod->path);
 	kmod_list_foreach(l, mod->symbols) {
-		struct symbol *sym = l->data;
+		struct symbol *sym = kmod_list_data(l);
 
 		_depmod_symbol_add(depmod, sym);
 	}
