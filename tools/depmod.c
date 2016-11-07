@@ -824,6 +824,13 @@ struct symbol {
 	char name[];
 };
 
+struct depmod;
+struct depmod_hooks {
+	void (*pre_load_hook)(struct depmod *);
+	void (*insert_hook)(struct depmod *, struct mod *);
+	void (*fit_hook)(struct depmod *, struct mod*, bool *);
+};
+
 struct depmod {
 	const struct cfg *cfg;
 	struct kmod_ctx *ctx;
@@ -832,6 +839,7 @@ struct depmod {
 	struct hash *modules_by_name; /* struct named_modules */
 	struct hash *symbols;
 	struct hash *sort_order;
+	struct depmod_hooks *hooks;
 };
 
 static struct mod *mod_new(struct depmod *depmod,
@@ -1696,8 +1704,8 @@ static bool depmod_module_is_fit(struct depmod *depmod, struct mod *mod)
 	if (is_fit)
 		DBG("module %s fits current configuration\n", mod->path);
 
-	if (!cfg->reject_failed_symbols)
-		is_fit = true;
+	if (depmod->hooks->fit_hook)
+		depmod->hooks->fit_hook(depmod, mod, &is_fit);
 
 	return is_fit;
 }
@@ -1716,12 +1724,9 @@ static void depmod_insert_module(struct depmod *depmod, struct mod *mod)
 			mod_add_dependency(mod, sym);
 	}
 
-	DBG("do insert symbols of %s\n", mod->path);
-	kmod_list_foreach(l, mod->symbols) {
-		struct symbol *sym = kmod_list_data(l);
+	if (depmod->hooks->insert_hook)
+		depmod->hooks->insert_hook(depmod, mod);
 
-		_depmod_symbol_add(depmod, sym);
-	}
 	mod->nm->inserted = mod->inserted = true;
 }
 
@@ -1985,6 +1990,10 @@ exit:
 static int depmod_load(struct depmod *depmod)
 {
 	int err;
+
+	/* the modules are sorted already by directory order */
+	if (depmod->hooks->pre_load_hook)
+		depmod->hooks->pre_load_hook(depmod);
 
 	depmod_make_sort_order(depmod);
 
@@ -2767,6 +2776,74 @@ static int is_version_number(const char *version)
 	return (sscanf(version, "%u.%u", &d1, &d2) == 2);
 }
 
+
+static void depmod_module_insert_symbols(struct depmod *depmod, struct mod *mod)
+{
+	struct kmod_list *l;
+
+	if (!mod->loaded)
+		depmod_module_load(depmod, mod);
+
+	DBG("do insert symbols of %s\n", mod->path);
+	kmod_list_foreach(l, mod->symbols) {
+		struct symbol *sym = kmod_list_data(l);
+
+		_depmod_symbol_add(depmod, sym);
+	}
+}
+
+/*
+  for normal mode all available symbols should be
+  injected in advance
+*/
+static void default_pre_load_hook(struct depmod *depmod)
+{
+	struct hash_iter module_iter;
+	const void *v;
+
+	DBG("load symbols provided by modules (%u modules)\n",
+	    hash_get_count(depmod->modules_by_name));
+
+	hash_iter_init(depmod->modules_by_name, &module_iter);
+	while (hash_iter_next(&module_iter, NULL, &v)) {
+		struct named_modules *nm = (struct named_modules *) v;
+		struct mod *mod;
+
+		mod = *(struct mod **)nm->modules_sorted.array;
+		depmod_module_insert_symbols(depmod, mod);
+	}
+}
+
+static void default_fit_hook(struct depmod *depmod,
+			     struct mod *mod,
+			     bool *is_fit)
+{
+	/*
+	  since in default mode we allow broken dependencies,
+	  every (first priority) module fits.
+	*/
+	*is_fit = true;
+}
+
+/*
+  for normal mode module symbols are injected in advance
+  (from the pre_load_hook). In reject mode as soon as it fits
+  and inserted.
+*/
+static void reject__insert_hook(struct depmod *depmod, struct mod *mod)
+{
+	depmod_module_insert_symbols(depmod, mod);
+}
+
+struct depmod_hooks default_hooks = {
+	.pre_load_hook = default_pre_load_hook,
+	.fit_hook = default_fit_hook,
+};
+
+struct depmod_hooks reject_hooks = {
+	.insert_hook = reject__insert_hook,
+};
+
 static int do_depmod(int argc, char *argv[])
 {
 	FILE *out = NULL;
@@ -2783,6 +2860,7 @@ static int do_depmod(int argc, char *argv[])
 
 	memset(&cfg, 0, sizeof(cfg));
 	memset(&depmod, 0, sizeof(depmod));
+	depmod.hooks = &default_hooks;
 
 	for (;;) {
 		int c, idx = 0;
@@ -2842,6 +2920,7 @@ static int do_depmod(int argc, char *argv[])
 			break;
 		case 'j':
 			cfg.reject_failed_symbols = 1;
+			depmod.hooks = &reject_hooks;
 			break;
 		case 'u':
 		case 'q':
