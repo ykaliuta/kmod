@@ -131,4 +131,35 @@ DEFINE_TEST(depmod_detect_loop,
 		.err = DETECT_LOOP_ROOTFS "/correct.txt",
 	});
 
+
+#define REJECT_SEARCH_ORDER_SIMPLE_ROOTFS TESTSUITE_ROOTFS "test-depmod/reject-search-order-simple"
+
+static noreturn int depmod_reject_search_order_simple(const struct test *t)
+{
+	const char *progname = ABS_TOP_BUILDDIR "/tools/depmod";
+	const char *const args[] = {
+		progname,
+		"-j",
+		"-F",
+		"/boot/System.map",
+		NULL,
+	};
+
+	test_spawn_prog(progname, args);
+	exit(EXIT_FAILURE);
+}
+DEFINE_TEST(depmod_reject_search_order_simple,
+	.description = "check if depmod honor search order in config, reject mode",
+	.config = {
+		[TC_UNAME_R] = "4.4.4",
+		[TC_ROOTFS] = REJECT_SEARCH_ORDER_SIMPLE_ROOTFS,
+	},
+	.output = {
+		.files = (const struct keyval[]) {
+			{ REJECT_SEARCH_ORDER_SIMPLE_ROOTFS "/lib/modules/4.4.4/correct-modules.dep",
+			  REJECT_SEARCH_ORDER_SIMPLE_ROOTFS "/lib/modules/4.4.4/modules.dep" },
+			{ }
+		},
+	});
+
 TESTSUITE_MAIN();
