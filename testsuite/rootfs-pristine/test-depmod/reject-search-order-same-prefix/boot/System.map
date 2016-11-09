@@ -1,0 +1,3 @@
+ffffffff81803f40 T __fentry__
+ffffffff81cf5300 R __ksymtab___fentry__
+ffffffff81d16fbd r __kstrtab___fentry__
