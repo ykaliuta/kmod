@@ -186,7 +186,15 @@ struct kmod_list *kmod_list_prepend(struct kmod_list *list, const void *data)
 	return new;
 }
 
-struct kmod_list *kmod_list_remove(struct kmod_list *list)
+/**
+ * kmod_list_remove:
+ * @list: the element of the list to remove
+ *
+ * Removes and frees the element @list from the list it is a member of.
+ *
+ * Returns: the new list head value.
+ */
+KMOD_EXPORT struct kmod_list *kmod_list_remove(struct kmod_list *list)
 {
 	struct list_node *node;
 
@@ -202,7 +210,17 @@ struct kmod_list *kmod_list_remove(struct kmod_list *list)
 	return container_of(node, struct kmod_list, node);
 }
 
-struct kmod_list *kmod_list_remove_data(struct kmod_list *list,
+/**
+ * kmod_list_remove_data:
+ * @list: the head of the list
+ * @data: pointer to the data element to remove
+ *
+ * Gets the list head @list, searches for an entry, contaning
+ * data pointer @data and if finds, removes the element from the list.
+ *
+ * Returns: the new list head value.
+ */
+KMOD_EXPORT struct kmod_list *kmod_list_remove_data(struct kmod_list *list,
 							const void *data)
 {
 	struct kmod_list *itr;
@@ -311,4 +329,18 @@ KMOD_EXPORT struct kmod_list *kmod_list_last(const struct kmod_list *list)
 	if (list == NULL)
 		return NULL;
 	return container_of(list->node.prev, struct kmod_list, node);
+}
+
+/**
+ * kmod_list_data:
+ * @list: list element to extract data pointer from
+ *
+ * Returns the @data pointer from the list entry
+ * to keep the kmod_list structure opaque
+ */
+KMOD_EXPORT void *kmod_list_data(const struct kmod_list *list)
+{
+	if (list == NULL)
+		return NULL;
+	return list->data;
 }
