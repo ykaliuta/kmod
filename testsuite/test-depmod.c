@@ -183,4 +183,34 @@ DEFINE_TEST(depmod_search_order_external_last,
 		},
 	});
 
+#define RELOCATED_CRC_ROOTFS TESTSUITE_ROOTFS "test-depmod/relocated-crc"
+static noreturn int relocated_crc(const struct test *t)
+{
+	const char *progname = ABS_TOP_BUILDDIR "/tools/depmod";
+	const char *const args[] = {
+		progname,
+		"-aeE",
+		"/boot/symvers",
+		NULL,
+	};
+
+	test_spawn_prog(progname, args);
+	exit(EXIT_FAILURE);
+}
+DEFINE_TEST(relocated_crc,
+	.description = "check if depmod understand both relocated and non-relocated crcs",
+	.print_outputs = true,
+	.config = {
+		[TC_UNAME_R] = "4.4.4",
+		[TC_ROOTFS] = RELOCATED_CRC_ROOTFS,
+	},
+	.output = {
+	        .err = RELOCATED_CRC_ROOTFS "/output.err",
+		.files = (const struct keyval[]) {
+			{ RELOCATED_CRC_ROOTFS "/lib/modules/4.4.4/correct-modules.dep",
+			  RELOCATED_CRC_ROOTFS "/lib/modules/4.4.4/modules.dep" },
+			{ }
+		},
+	});
+
 TESTSUITE_MAIN();

@@ -1,0 +1,4 @@
+kernel/mod-foo-c.ko:
+kernel/mod-foo-b-nonrel.ko:
+kernel/mod-foo.ko: kernel/mod-foo-b-nonrel.ko kernel/mod-foo-a-rel.ko kernel/mod-foo-c.ko
+kernel/mod-foo-a-rel.ko:

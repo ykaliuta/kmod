@@ -1,0 +1,10 @@
+depmod: WARNING: /lib/modules/4.4.4/kernel/mod-foo-c.ko needs unknown symbol __fentry__
+depmod: WARNING: /lib/modules/4.4.4/kernel/mod-foo-c.ko needs unknown symbol printk
+depmod: WARNING: /lib/modules/4.4.4/kernel/mod-foo-c.ko needs unknown symbol module_layout
+depmod: WARNING: /lib/modules/4.4.4/kernel/mod-foo-b-nonrel.ko needs unknown symbol __fentry__
+depmod: WARNING: /lib/modules/4.4.4/kernel/mod-foo-b-nonrel.ko needs unknown symbol printk
+depmod: WARNING: /lib/modules/4.4.4/kernel/mod-foo-b-nonrel.ko needs unknown symbol module_layout
+depmod: WARNING: /lib/modules/4.4.4/kernel/mod-foo.ko needs unknown symbol module_layout
+depmod: WARNING: /lib/modules/4.4.4/kernel/mod-foo-a-rel.ko needs unknown symbol __fentry__
+depmod: WARNING: /lib/modules/4.4.4/kernel/mod-foo-a-rel.ko needs unknown symbol printk
+depmod: WARNING: /lib/modules/4.4.4/kernel/mod-foo-a-rel.ko needs unknown symbol module_layout

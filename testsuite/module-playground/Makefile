@@ -11,6 +11,10 @@ obj-m += mod-foo-b.o
 obj-m += mod-foo-c.o
 obj-m += mod-foo.o
 
+# predictable relocated/non-relocated symbols crc
+mod-foo-a-rel-y := mod-foo-a.o
+mod-foo-b-nonrel-y := mod-foo-b.o
+
 # mod-loop: create loops in dependencies:
 # 1) mod-loop-a  ->  mod-loop-b -> mod-loop-c -> mod-loop-a
 #     |-> mod-loop-f    |-> mod-loop-f
@@ -63,8 +67,12 @@ mod-simple-%.ko: mod-simple-%.c Makefile.arch
 	$(MAKE) KDIR=$(KDIR_$(arch)) ARCH=$(arch) CROSS_COMPILE=$(CROSS_COMPILE_$(arch)) -f Makefile.arch
 
 ifeq ($(FAKE_BUILD),0)
-modules:
+modules: rel-modules
 	$(MAKE) -C $(KDIR) M=$$PWD
+
+rel-modules:
+	$(MAKE) -C $(KDIR) M=$$PWD CONFIG_MODULE_REL_CRCS=y obj-m=mod-foo-a-rel.o
+	$(MAKE) -C $(KDIR) M=$$PWD CONFIG_MODULE_REL_CRCS=n obj-m=mod-foo-b-nonrel.o
 else
 modules:
 	@echo "  CP       cache/*.ko"
