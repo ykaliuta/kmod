@@ -106,6 +106,17 @@ AS_IF([test "x$with_zlib" != "xno"], [
 ])
 CC_FEATURE_APPEND([with_features], [with_zlib], [ZLIB])
 
+AC_ARG_WITH([gnutls],
+	AS_HELP_STRING([--with-gnutls], [handle PKCS7 signatures @<:@default=disabled@:>@]),
+	[], [with_gnutls=no])
+AS_IF([test "x$with_gnutls" != "xno"], [
+	PKG_CHECK_MODULES([gnutls], [gnutls])
+	AC_DEFINE([ENABLE_GNUTLS], [1], [Enable gnutls for modinfo.])
+], [
+	AC_MSG_NOTICE([gnutls support not requested])
+])
+CC_FEATURE_APPEND([with_features], [with_gnutls], [GNUTLS])
+
 AC_ARG_WITH([bashcompletiondir],
 	AS_HELP_STRING([--with-bashcompletiondir=DIR], [Bash completions directory]),
 	[],

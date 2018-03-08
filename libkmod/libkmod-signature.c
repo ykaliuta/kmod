@@ -19,6 +19,9 @@
 
 #include <endian.h>
 #include <inttypes.h>
+#ifdef ENABLE_GNUTLS
+#include <gnutls/pkcs7.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -92,6 +95,13 @@ struct module_signature {
 	uint32_t sig_len;    /* Length of signature data (big endian) */
 };
 
+static const char *pkey_hash_algo_to_str(enum pkey_hash_algo algo)
+{
+	if (algo < 0 || algo >= PKEY_HASH__LAST)
+		return "unknown";
+	return pkey_hash_algo[algo];
+}
+
 static bool fill_default(const char *mem, off_t size,
 			 const struct module_signature *modsig, size_t sig_len,
 			 struct kmod_signature_info *sig_info)
@@ -115,14 +125,198 @@ static bool fill_default(const char *mem, off_t size,
 	return true;
 }
 
-static bool fill_unknown(const char *mem, off_t size,
-			 const struct module_signature *modsig, size_t sig_len,
-			 struct kmod_signature_info *sig_info)
+#ifdef ENABLE_GNUTLS
+
+struct pkcs7_private {
+	gnutls_pkcs7_t pkcs7;
+	gnutls_pkcs7_signature_info_st si;
+	gnutls_x509_dn_t dn;
+	gnutls_datum_t dn_data;
+	char *issuer;
+};
+
+static void pkcs7_free(void *s)
+{
+	struct kmod_signature_info *si = s;
+	struct pkcs7_private *pvt = si->private;
+
+	free(pvt->issuer);
+	gnutls_free(pvt->dn_data.data);
+	gnutls_x509_dn_deinit(pvt->dn);
+	gnutls_pkcs7_signature_info_deinit(&pvt->si);
+	gnutls_pkcs7_deinit(pvt->pkcs7);
+
+	free(pvt);
+	si->private = NULL;
+}
+
+static int gnutls_algo_translate(gnutls_sign_algorithm_t algo)
+{
+	switch (algo) {
+	case GNUTLS_SIGN_RSA_SHA1:
+	case GNUTLS_SIGN_DSA_SHA1:
+	case GNUTLS_SIGN_ECDSA_SHA1:
+		return PKEY_HASH_SHA1;
+	case GNUTLS_SIGN_RSA_MD5:
+		return PKEY_HASH_MD5;
+	case GNUTLS_SIGN_RSA_RMD160:
+		return PKEY_HASH_RIPE_MD_160;
+	case GNUTLS_SIGN_RSA_SHA256:
+	case GNUTLS_SIGN_DSA_SHA256:
+	case GNUTLS_SIGN_ECDSA_SHA256:
+		return PKEY_HASH_SHA256;
+	case GNUTLS_SIGN_RSA_SHA384:
+	case GNUTLS_SIGN_ECDSA_SHA384:
+	case GNUTLS_SIGN_DSA_SHA384:
+		return PKEY_HASH_SHA384;
+	case GNUTLS_SIGN_RSA_SHA512:
+	case GNUTLS_SIGN_ECDSA_SHA512:
+	case GNUTLS_SIGN_DSA_SHA512:
+		return PKEY_HASH_SHA512;
+	case GNUTLS_SIGN_RSA_SHA224:
+	case GNUTLS_SIGN_DSA_SHA224:
+	case GNUTLS_SIGN_ECDSA_SHA224:
+		return PKEY_HASH_SHA224;
+	default:
+		return -1;
+	}
+	return -1;
+}
+
+/*
+ * Extracts CN from O=Org,CN=CommonName,EMAIL=email
+ */
+static char *dn_str_to_cn(unsigned char *dn)
+{
+	char *s;
+	char *e;
+	char *r;
+	size_t len;
+
+	s = strstr((char *)dn, "CN=");
+	if (s == NULL)
+		return NULL;
+
+	len = strlen(s);
+	if (len < strlen("CN=") + 1) /* at least one symbol */
+		return NULL;
+	s += strlen("CN=");
+
+	e = strchr(s, ',');
+	if (e == NULL)
+		e = s + len;
+	len = e - s;
+
+	r = malloc(len + 1);
+	if (r == NULL)
+		return NULL;
+
+	memcpy(r, s, len);
+	r[len] = '\0';
+	return r;
+}
+static bool fill_pkcs7(const char *mem, off_t size,
+		       const struct module_signature *modsig, size_t sig_len,
+		       struct kmod_signature_info *sig_info)
+{
+	int rc;
+	const char *pkcs7_raw;
+	gnutls_pkcs7_t pkcs7;
+	gnutls_datum_t data;
+	gnutls_pkcs7_signature_info_st si;
+	gnutls_x509_dn_t dn;
+	struct pkcs7_private *pvt;
+	char *issuer;
+
+	size -= sig_len;
+	pkcs7_raw = mem + size;
+
+	rc = gnutls_pkcs7_init(&pkcs7);
+	if (rc < 0)
+		return false;
+
+	data.data = (unsigned char *)pkcs7_raw;
+	data.size = sig_len;
+	rc = gnutls_pkcs7_import(pkcs7, &data, GNUTLS_X509_FMT_DER);
+	if (rc < 0)
+		goto err1;
+
+	rc = gnutls_pkcs7_get_signature_info(pkcs7, 0, &si);
+	if (rc < 0)
+		goto err1;
+
+	rc = gnutls_x509_dn_init(&dn);
+	if (rc < 0)
+		goto err2;
+
+	rc = gnutls_x509_dn_import(dn, &si.issuer_dn);
+	if (rc < 0)
+		goto err3;
+
+	/*
+	 * I could not find simple wrapper to extract the data
+	 * directly from ASN1, so get the string and parse it.
+	 *
+	 * Returns null-terminated string in data.data
+	 */
+	rc = gnutls_x509_dn_get_str(dn, &data);
+	if (rc < 0)
+		goto err3;
+
+	sig_info->sig = (const char *)si.sig.data;
+	sig_info->sig_len = si.sig.size;
+
+	sig_info->key_id = (const char *)si.signer_serial.data;
+	sig_info->key_id_len = si.signer_serial.size;
+
+	issuer = dn_str_to_cn(data.data);
+	if (issuer != NULL) {
+		sig_info->signer = issuer;
+		sig_info->signer_len = strlen(issuer);
+	}
+
+	sig_info->hash_algo = pkey_hash_algo_to_str(gnutls_algo_translate(si.algo));
+	sig_info->id_type = pkey_id_type[modsig->id_type];
+
+	pvt = malloc(sizeof(*pvt));
+	if (pvt == NULL)
+		goto err4;
+
+	pvt->pkcs7 = pkcs7;
+	pvt->si = si;
+	pvt->dn = dn;
+	pvt->dn_data = data;
+	pvt->issuer = issuer;
+
+	sig_info->private = pvt;
+	sig_info->free = pkcs7_free;
+
+	return true;
+
+err4:
+	gnutls_free(data.data);
+err3:
+	gnutls_x509_dn_deinit(dn);
+err2:
+	gnutls_pkcs7_signature_info_deinit(&si);
+err1:
+	gnutls_pkcs7_deinit(pkcs7);
+
+	return false;
+}
+
+#else /* ENABLE GNUTLS */
+
+static bool fill_pkcs7(const char *mem, off_t size,
+		       const struct module_signature *modsig, size_t sig_len,
+		       struct kmod_signature_info *sig_info)
 {
 	sig_info->hash_algo = "unknown";
 	sig_info->id_type = pkey_id_type[modsig->id_type];
 	return true;
 }
+
+#endif /* ENABLE GNUTLS */
 
 #define SIG_MAGIC "~Module signature appended~\n"
 
@@ -167,8 +361,14 @@ bool kmod_module_signature_info(const struct kmod_file *file, struct kmod_signat
 
 	switch (modsig->id_type) {
 	case PKEY_ID_PKCS7:
-		return fill_unknown(mem, size, modsig, sig_len, sig_info);
+		return fill_pkcs7(mem, size, modsig, sig_len, sig_info);
 	default:
 		return fill_default(mem, size, modsig, sig_len, sig_info);
 	}
+}
+
+void kmod_module_signature_info_free(struct kmod_signature_info *sig_info)
+{
+	if (sig_info->free)
+		sig_info->free(sig_info);
 }
