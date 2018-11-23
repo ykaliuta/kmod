@@ -258,6 +258,18 @@ int kmod_module_dependency_symbol_get_bind(const struct kmod_list *entry);
 uint64_t kmod_module_dependency_symbol_get_crc(const struct kmod_list *entry);
 void kmod_module_dependency_symbols_free_list(struct kmod_list *list);
 
+enum kmod_symbol_type {
+	KMOD_SYMBOL_VERSIONS = 1,
+	KMOD_SYMBOL_CRC,
+	KMOD_SYMBOL_DEPENDENCY,
+};
+
+int kmod_module_get_typed_symbols(const struct kmod_module *mod, enum kmod_symbol_type type, struct kmod_list **list);
+const char *kmod_module_typed_symbol_get_symbol(const struct kmod_list *entry);
+int kmod_module_typed_symbol_get_bind(const struct kmod_list *entry);
+uint64_t kmod_module_typed_symbol_get_crc(const struct kmod_list *entry);
+void kmod_module_typed_symbols_free_list(struct kmod_list *list);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

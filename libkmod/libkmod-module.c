@@ -2419,6 +2419,197 @@ KMOD_EXPORT void kmod_module_info_free_list(struct kmod_list *list)
 	}
 }
 
+struct kmod_module_symbol {
+	uint64_t crc;
+	uint8_t bind;
+	char symbol[];
+};
+
+static struct kmod_module_symbol *kmod_module_typed_symbol_new(uint64_t crc, uint8_t bind, const char *symbol)
+{
+	struct kmod_module_symbol *ms;
+	size_t symbollen = strlen(symbol) + 1;
+
+	ms = malloc(sizeof(struct kmod_module_symbol) + symbollen);
+	if (ms == NULL)
+		return NULL;
+
+	ms->crc = crc;
+	ms->bind = bind;
+	memcpy(ms->symbol, symbol, symbollen);
+	return ms;
+}
+
+static void kmod_module_typed_symbol_free(struct kmod_module_symbol *ms)
+{
+	free(ms);
+}
+
+typedef int (*kmod_symbols_getter)(const struct kmod_elf *elf, struct kmod_modversion **array);
+
+static kmod_symbols_getter kmod_module_getter_lookup(const struct kmod_module *mod,
+						     enum kmod_symbol_type type)
+{
+	switch (type) {
+	case KMOD_SYMBOL_VERSIONS:
+		return kmod_elf_get_modversions;
+	case KMOD_SYMBOL_CRC:
+		return kmod_elf_get_symbols;
+	case KMOD_SYMBOL_DEPENDENCY:
+		return kmod_elf_get_dependency_symbols;
+	default:
+		ERR(mod->ctx, "Wrong symbol type requested: %d\n", type);
+	}
+
+	return NULL;
+}
+
+/**
+ * kmod_module_get_typed_symbols:
+ * @mod: kmod module
+ * @type: type of symbols to get:
+ *        KMOD_SYMBOL_VERSIONS
+ *        KMOD_SYMBOL_CRC
+ *        KMDO_SYMBOL_DEPENDENCY
+ * @list: where to return list of module symbols. Use
+ *        kmod_module_typed_symbol_get_symbol(),
+ *        kmod_module_typed_symbol_get_crc() and
+ *        kmod_module_typed_symbol_get_bind() to access the data.
+ *
+ *        After use, free the @list by calling
+ *        kmod_module_typed_symbols_free_list().
+ *
+ * Returns: 0 on success or < 0 otherwise.
+ */
+KMOD_EXPORT int kmod_module_get_typed_symbols(const struct kmod_module *mod, enum kmod_symbol_type type, struct kmod_list **list)
+{
+	struct kmod_elf *elf;
+	struct kmod_modversion *symbols;
+	int i, count, ret = 0;
+	kmod_symbols_getter getter;
+
+	if (mod == NULL || list == NULL)
+		return -ENOENT;
+
+	assert(*list == NULL);
+
+	elf = kmod_module_get_elf(mod);
+	if (elf == NULL)
+		return -errno;
+
+	getter = kmod_module_getter_lookup(mod, type);
+	if (getter == NULL)
+		return -ENOENT;
+
+	count = getter(elf, &symbols);
+	if (count < 0)
+		return count;
+
+	for (i = 0; i < count; i++) {
+		struct kmod_module_symbol *ms;
+		struct kmod_list *n;
+
+		ms = kmod_module_typed_symbol_new(symbols[i].crc,
+						  symbols[i].bind,
+						  symbols[i].symbol);
+		if (ms == NULL) {
+			ret = -errno;
+			kmod_module_typed_symbols_free_list(*list);
+			*list = NULL;
+			goto list_error;
+		}
+
+		n = kmod_list_append(*list, ms);
+		if (n != NULL)
+			*list = n;
+		else {
+			kmod_module_typed_symbol_free(ms);
+			kmod_module_typed_symbols_free_list(*list);
+			*list = NULL;
+			ret = -ENOMEM;
+			goto list_error;
+		}
+	}
+	ret = count;
+
+list_error:
+	free(symbols);
+	return ret;
+}
+
+/**
+ * kmod_module_typed_symbol_get_symbol:
+ * @entry: a list entry representing a kmod module typed symbol
+ *
+ * Get the symbol's name of the entry.
+ *
+ * Returns: the symbol's name of this kmod module symbols on success or NULL
+ * on failure. The string is owned by the list, do not free it.
+ */
+KMOD_EXPORT const char *kmod_module_typed_symbol_get_symbol(const struct kmod_list *entry)
+{
+	struct kmod_module_symbol *ms;
+
+	if (entry == NULL || entry->data == NULL)
+		return NULL;
+
+	ms = entry->data;
+	return ms->symbol;
+}
+
+/**
+ * kmod_module_typed_symbol_get_crc:
+ * @entry: a list entry representing a kmod module symbol
+ *
+ * Get the crc of the symbol.
+ *
+ * Returns: the crc of this kmod module symbol if available, otherwise default to 0.
+ */
+KMOD_EXPORT uint64_t kmod_module_typed_symbol_get_crc(const struct kmod_list *entry)
+{
+	struct kmod_module_symbol *ms;
+
+	if (entry == NULL || entry->data == NULL)
+		return 0;
+
+	ms = entry->data;
+	return ms->crc;
+}
+
+/**
+ * kmod_module_dependency_symbol_get_bind:
+ * @entry: a list entry representing a kmod module symbol
+ *
+ * Get the bind type of the symbol.
+ *
+ * Returns: the bind of this kmod module symbol on success
+ * or < 0 on failure.
+ */
+KMOD_EXPORT int kmod_module_typed_symbol_get_bind(const struct kmod_list *entry)
+{
+	struct kmod_module_symbol *ms;
+
+	if (entry == NULL || entry->data == NULL)
+		return 0;
+
+	ms = entry->data;
+	return ms->bind;
+}
+
+/**
+ * kmod_module_typed_symbols_free_list:
+ * @list: kmod module typed symbols list
+ *
+ * Release the resources taken by @list
+ */
+KMOD_EXPORT void kmod_module_typed_symbols_free_list(struct kmod_list *list)
+{
+	while (list) {
+		kmod_module_typed_symbol_free(list->data);
+		list = kmod_list_remove(list);
+	}
+}
+
 struct kmod_module_version {
 	uint64_t crc;
 	char symbol[];
@@ -2558,11 +2749,6 @@ KMOD_EXPORT void kmod_module_versions_free_list(struct kmod_list *list)
 		list = kmod_list_remove(list);
 	}
 }
-
-struct kmod_module_symbol {
-	uint64_t crc;
-	char symbol[];
-};
 
 static struct kmod_module_symbol *kmod_module_symbols_new(uint64_t crc, const char *symbol)
 {
