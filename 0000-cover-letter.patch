@@ -1,0 +1,21 @@
+From 2132608bdfaf70ea772b1b59b6e883d52f2065d9 Mon Sep 17 00:00:00 2001
+From: Yauheni Kaliuta <yauheni.kaliuta@redhat.com>
+Date: Fri, 4 Jan 2019 23:35:44 +0200
+Subject: [PATCH kmod 0/2] testsuite: abstraction to compare file descriptor
+
+Factor out common code to handle comparation of stdout/stderr to the
+template.
+
+The first patch is made to make reviewing of the change of the
+original logic easier.
+
+Yauheni Kaliuta (2):
+  testsuite: track number of descriptors instead of their state
+  testsuite: factor out fd related parameters to a structure
+
+ testsuite/testsuite.c | 362 +++++++++++++++++++++++++-----------------
+ 1 file changed, 219 insertions(+), 143 deletions(-)
+
+-- 
+2.20.0
+
